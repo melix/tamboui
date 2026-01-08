@@ -338,10 +338,13 @@ public final class Buffer {
         }
 
         for (int i = 0; i < content.length; i++) {
-            if (!content[i].equals(other.content[i])) {
+            Cell thisCell = content[i];
+            Cell otherCell = other.content[i];
+            // Fast path: reference equality means same cell, no update needed
+            if (thisCell != otherCell && !thisCell.equals(otherCell)) {
                 int x = area.x() + (i % area.width());
                 int y = area.y() + (i / area.width());
-                updates.add(new CellUpdate(x, y, other.content[i]));
+                updates.add(new CellUpdate(x, y, otherCell));
             }
         }
 
