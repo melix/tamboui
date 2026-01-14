@@ -28,6 +28,7 @@ import dev.tamboui.widgets.text.Overflow;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * A container element with borders and title.
@@ -236,8 +237,9 @@ public final class Panel extends ContainerElement<Panel> {
         // Get current style from context (already resolved by StyledElement.render)
         Style effectiveStyle = context.currentStyle();
 
-        // Get the CSS resolver for this element
-        StylePropertyResolver resolver = context.resolveStyle(this)
+        // Get the CSS resolver from the stack (already resolved by StyledElement.render)
+        Optional<CssStyleResolver> cssResolver = context.currentResolver();
+        StylePropertyResolver resolver = cssResolver
                 .map(r -> (StylePropertyResolver) r)
                 .orElse(StylePropertyResolver.empty());
 
@@ -250,7 +252,7 @@ public final class Panel extends ContainerElement<Panel> {
         // Get padding: programmatic > CSS > none
         Padding effectivePadding = this.padding;
         if (effectivePadding == null) {
-            effectivePadding = context.resolveStyle(this)
+            effectivePadding = cssResolver
                     .flatMap(CssStyleResolver::padding)
                     .orElse(Padding.NONE);
         }

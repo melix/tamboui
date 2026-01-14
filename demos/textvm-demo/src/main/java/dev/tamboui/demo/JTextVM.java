@@ -22,6 +22,7 @@ import static dev.tamboui.toolkit.Toolkit.text;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Properties;
@@ -101,6 +102,7 @@ public class JTextVM implements Element {
     public void run() throws Exception {
         var config = TuiConfig.builder()
             .mouseCapture(true)
+                .tickRate(Duration.ofMillis(5))
           //  .tickRate(Duration.ofMillis(500))
           //.noTick()
           .build();

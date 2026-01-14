@@ -20,6 +20,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Represents the computed style for an element after CSS cascade resolution.
@@ -45,6 +46,9 @@ public final class CssStyleResolver implements StylePropertyResolver {
     private final BorderType borderType;
     private final Width width;
     private final Map<String, String> additionalProperties;
+
+    // Cached Style to avoid repeated allocations
+    private final AtomicReference<Style> cachedStyle = new AtomicReference<>();
 
     private CssStyleResolver(Color foreground,
                              Color background,
@@ -214,6 +218,11 @@ public final class CssStyleResolver implements StylePropertyResolver {
      * @return the Style object
      */
     public Style toStyle() {
+        Style cached = cachedStyle.get();
+        if (cached != null) {
+            return cached;
+        }
+
         Style style = Style.EMPTY;
 
         if (foreground != null) {
@@ -229,7 +238,8 @@ public final class CssStyleResolver implements StylePropertyResolver {
             style = style.withExtension(Width.class, width);
         }
 
-        return style;
+        cachedStyle.compareAndSet(null, style);
+        return cachedStyle.get();
     }
 
     /**

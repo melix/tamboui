@@ -87,6 +87,22 @@ public interface RenderContext {
     }
 
     /**
+     * Returns the current CSS resolver from the resolver stack.
+     * <p>
+     * This resolver was obtained during the parent element's CSS resolution
+     * and can be used to access CSS properties not part of the Style cascade
+     * (e.g., text-overflow, border-type).
+     * <p>
+     * Use this instead of calling {@link #resolveStyle(Styleable)} again
+     * to avoid redundant CSS resolution.
+     *
+     * @return the current CSS resolver, or empty if none is active
+     */
+    default Optional<CssStyleResolver> currentResolver() {
+        return Optional.empty();
+    }
+
+    /**
      * Resolves CSS style for a child element.
      * <p>
      * The child type is derived from the current element's type plus the child name

@@ -240,6 +240,10 @@ public final class Buffer {
      * @param style the style to apply
      */
     public void setStyle(Rect area, Style style) {
+        if (style == Style.EMPTY) {
+            return;
+        }
+
         Rect intersection = this.area.intersection(area);
         if (intersection.isEmpty()) {
             return;
@@ -248,7 +252,10 @@ public final class Buffer {
         for (int y = intersection.top(); y < intersection.bottom(); y++) {
             for (int x = intersection.left(); x < intersection.right(); x++) {
                 Cell cell = get(x, y);
-                set(x, y, cell.patchStyle(style));
+                Cell patched = cell.patchStyle(style);
+                if (patched != cell) {
+                    set(x, y, patched);
+                }
             }
         }
     }

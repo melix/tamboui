@@ -181,8 +181,8 @@ public final class TextElement extends StyledElement<TextElement> {
         // Get the current style from the context (already resolved by StyledElement.render)
         Style effectiveStyle = context.currentStyle();
 
-        // Get the CSS resolver for this element
-        StylePropertyResolver resolver = context.resolveStyle(this)
+        // Get the CSS resolver from the stack (already resolved by StyledElement.render)
+        StylePropertyResolver resolver = context.currentResolver()
                 .map(r -> (StylePropertyResolver) r)
                 .orElse(StylePropertyResolver.empty());
 

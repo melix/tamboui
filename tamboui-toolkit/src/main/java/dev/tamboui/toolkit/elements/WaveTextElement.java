@@ -219,8 +219,8 @@ public final class WaveTextElement extends StyledElement<WaveTextElement> {
         // Advance the animation state
         state.advance();
 
-        // Get the CSS resolver for this element
-        StylePropertyResolver resolver = context.resolveStyle(this)
+        // Get the CSS resolver from the stack (already resolved by StyledElement.render)
+        StylePropertyResolver resolver = context.currentResolver()
                 .map(r -> (StylePropertyResolver) r)
                 .orElse(StylePropertyResolver.empty());
 
