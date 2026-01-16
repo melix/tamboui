@@ -67,6 +67,18 @@ import java.util.function.Function;
  */
 public final class ListElement<T> extends StyledElement<ListElement<T>> {
 
+    /**
+     * Policy for displaying the scrollbar.
+     */
+    public enum ScrollBarPolicy {
+        /** Never show the scrollbar. */
+        NONE,
+        /** Always show the scrollbar. */
+        ALWAYS,
+        /** Show the scrollbar only when content exceeds the viewport. */
+        AS_NEEDED
+    }
+
     private static final Style DEFAULT_HIGHLIGHT_STYLE = Style.EMPTY.reversed();
     private static final String DEFAULT_HIGHLIGHT_SYMBOL = "> ";
 
@@ -82,7 +94,10 @@ public final class ListElement<T> extends StyledElement<ListElement<T>> {
     private Color borderColor;
     private boolean autoScroll;
     private boolean autoScrollToEnd;
-    private boolean showScrollbar;
+    private boolean stickyScroll;
+    private boolean userScrolledAway;
+    private int lastDataSize;
+    private ScrollBarPolicy scrollBarPolicy = ScrollBarPolicy.NONE;
     private Color scrollbarThumbColor;
     private Color scrollbarTrackColor;
 
@@ -282,10 +297,14 @@ public final class ListElement<T> extends StyledElement<ListElement<T>> {
      * <p>
      * When enabled, the list automatically scrolls to show the selected item
      * before rendering.
+     * <p>
+     * Note: Cannot be combined with {@link #scrollToEnd()} or {@link #stickyScroll()}.
      *
      * @return this element
+     * @throws IllegalStateException if another scroll mode is already enabled
      */
     public ListElement<T> autoScroll() {
+        checkScrollModeNotSet("autoScroll");
         this.autoScroll = true;
         return this;
     }
@@ -295,8 +314,12 @@ public final class ListElement<T> extends StyledElement<ListElement<T>> {
      *
      * @param enabled true to enable auto-scroll
      * @return this element
+     * @throws IllegalStateException if enabled and another scroll mode is already enabled
      */
     public ListElement<T> autoScroll(boolean enabled) {
+        if (enabled) {
+            checkScrollModeNotSet("autoScroll");
+        }
         this.autoScroll = enabled;
         return this;
     }
@@ -307,32 +330,79 @@ public final class ListElement<T> extends StyledElement<ListElement<T>> {
      * Unlike {@link #autoScroll()}, this scrolls to the end immediately
      * without requiring a selection. Useful for chat messages, logs, or
      * other content where you want to always show the most recent items.
+     * <p>
+     * Note: This always forces scroll to end, overriding any user scrolling.
+     * For logs or chat where you want auto-scroll that pauses when the user
+     * scrolls up, use {@link #stickyScroll()} instead.
+     * <p>
+     * Note: Cannot be combined with {@link #autoScroll()} or {@link #stickyScroll()}.
      *
      * @return this element
+     * @throws IllegalStateException if another scroll mode is already enabled
      */
     public ListElement<T> scrollToEnd() {
+        checkScrollModeNotSet("scrollToEnd");
         this.autoScrollToEnd = true;
         return this;
     }
 
     /**
-     * Enables showing a scrollbar on the right side of the list.
+     * Enables sticky scroll behavior for the list.
+     * <p>
+     * With sticky scroll, the list automatically scrolls to show new items
+     * at the bottom, but pauses auto-scrolling when the user scrolls up.
+     * Auto-scrolling resumes when the user scrolls back to the bottom.
+     * <p>
+     * This is ideal for logs, chat messages, or activity feeds where you want
+     * to show the latest content but allow users to scroll back through history.
+     * <p>
+     * Note: Cannot be combined with {@link #autoScroll()} or {@link #scrollToEnd()}.
+     *
+     * @return this element
+     * @throws IllegalStateException if another scroll mode is already enabled
+     */
+    public ListElement<T> stickyScroll() {
+        checkScrollModeNotSet("stickyScroll");
+        this.stickyScroll = true;
+        return this;
+    }
+
+    private void checkScrollModeNotSet(String requestedMode) {
+        if (autoScroll && !"autoScroll".equals(requestedMode)) {
+            throw new IllegalStateException(
+                    "Cannot enable " + requestedMode + ": autoScroll is already enabled. " +
+                    "Only one scroll mode (autoScroll, scrollToEnd, stickyScroll) can be active.");
+        }
+        if (autoScrollToEnd && !"scrollToEnd".equals(requestedMode)) {
+            throw new IllegalStateException(
+                    "Cannot enable " + requestedMode + ": scrollToEnd is already enabled. " +
+                    "Only one scroll mode (autoScroll, scrollToEnd, stickyScroll) can be active.");
+        }
+        if (stickyScroll && !"stickyScroll".equals(requestedMode)) {
+            throw new IllegalStateException(
+                    "Cannot enable " + requestedMode + ": stickyScroll is already enabled. " +
+                    "Only one scroll mode (autoScroll, scrollToEnd, stickyScroll) can be active.");
+        }
+    }
+
+    /**
+     * Enables showing a scrollbar on the right side of the list (always visible).
      *
      * @return this element
      */
     public ListElement<T> scrollbar() {
-        this.showScrollbar = true;
+        this.scrollBarPolicy = ScrollBarPolicy.ALWAYS;
         return this;
     }
 
     /**
-     * Sets whether a scrollbar is shown.
+     * Sets the scrollbar policy.
      *
-     * @param enabled true to show a scrollbar
+     * @param policy the scrollbar display policy
      * @return this element
      */
-    public ListElement<T> scrollbar(boolean enabled) {
-        this.showScrollbar = enabled;
+    public ListElement<T> scrollbar(ScrollBarPolicy policy) {
+        this.scrollBarPolicy = policy != null ? policy : ScrollBarPolicy.NONE;
         return this;
     }
 
@@ -477,11 +547,16 @@ public final class ListElement<T> extends StyledElement<ListElement<T>> {
         String effectiveHighlightSymbol = highlightSymbol != null ? highlightSymbol : DEFAULT_HIGHLIGHT_SYMBOL;
         int symbolWidth = effectiveHighlightSymbol.length();
 
-        // Calculate content area (reserve space for symbol)
+        // Determine if we should reserve space for scrollbar
+        // For AS_NEEDED, we use a heuristic: reserve space if items exceed viewport height
+        boolean reserveScrollbarSpace = scrollBarPolicy == ScrollBarPolicy.ALWAYS
+                || (scrollBarPolicy == ScrollBarPolicy.AS_NEEDED && totalItems > visibleHeight);
+
+        // Calculate content area (reserve space for symbol and possibly scrollbar)
         // This must be done before calculating item heights since wrapping depends on width
         int contentX = listArea.left() + symbolWidth;
         int contentWidth = listArea.width() - symbolWidth;
-        if (showScrollbar) {
+        if (reserveScrollbarSpace) {
             contentWidth -= 1; // Reserve space for scrollbar
         }
 
@@ -495,14 +570,45 @@ public final class ListElement<T> extends StyledElement<ListElement<T>> {
             itemHeights[i] = itemHeightOf(effectiveItems.get(i), contentWidth, context);
         }
 
+        // Calculate total content height for scroll calculations
+        int totalHeight = 0;
+        for (int h : itemHeights) {
+            totalHeight += h;
+        }
+        int maxScroll = Math.max(0, totalHeight - visibleHeight);
+
+        // Final determination of whether to show scrollbar
+        boolean showScrollbar = scrollBarPolicy == ScrollBarPolicy.ALWAYS
+                || (scrollBarPolicy == ScrollBarPolicy.AS_NEEDED && totalHeight > visibleHeight);
+
         // Auto-scroll logic
-        if (autoScrollToEnd) {
-            // Scroll to show last items
-            int totalHeight = 0;
-            for (int h : itemHeights) {
-                totalHeight += h;
+        if (stickyScroll) {
+            // Sticky scroll: auto-scroll to end unless user has scrolled away
+            boolean newItemsAdded = totalItems > lastDataSize;
+            lastDataSize = totalItems;
+
+            // Clamp scrollOffset to valid range
+            scrollOffset = Math.min(scrollOffset, maxScroll);
+            scrollOffset = Math.max(0, scrollOffset);
+
+            // Check if at bottom - must be at or very near maxScroll, and maxScroll must be positive
+            boolean atBottom = maxScroll > 0 && scrollOffset >= maxScroll;
+
+            // Reset userScrolledAway if at bottom
+            if (atBottom) {
+                userScrolledAway = false;
+            } else if (newItemsAdded && !userScrolledAway) {
+                // New items added and we were auto-scrolling, stay at bottom
+                scrollOffset = maxScroll;
             }
-            scrollOffset = Math.max(0, totalHeight - visibleHeight);
+
+            // Auto-scroll to end if user hasn't scrolled away
+            if (!userScrolledAway) {
+                scrollOffset = maxScroll;
+            }
+        } else if (autoScrollToEnd) {
+            // Scroll to show last items (always, overriding user scroll)
+            scrollOffset = maxScroll;
         } else if (autoScroll) {
             // Scroll to keep selected item visible
             scrollToSelected(visibleHeight, itemHeights);
@@ -576,11 +682,6 @@ public final class ListElement<T> extends StyledElement<ListElement<T>> {
                 1,
                 listArea.height()
             );
-
-            int totalHeight = 0;
-            for (int h : itemHeights) {
-                totalHeight += h;
-            }
 
             ScrollbarState scrollbarState = new ScrollbarState()
                 .contentLength(totalHeight)
@@ -670,7 +771,7 @@ public final class ListElement<T> extends StyledElement<ListElement<T>> {
 
     @Override
     protected boolean needsEventRouting() {
-        return super.needsEventRouting() || showScrollbar || lastItemCount > 0;
+        return super.needsEventRouting() || scrollBarPolicy != ScrollBarPolicy.NONE || lastItemCount > 0;
     }
 
     @Override
@@ -685,38 +786,68 @@ public final class ListElement<T> extends StyledElement<ListElement<T>> {
         }
 
         if (event.matches(Actions.MOVE_UP)) {
-            selectPrevious();
+            if (stickyScroll) {
+                scrollOffset = Math.max(0, scrollOffset - 1);
+                userScrolledAway = true; // Scrolling up means user is scrolling away
+            } else {
+                selectPrevious();
+            }
             return EventResult.HANDLED;
         }
 
         if (event.matches(Actions.MOVE_DOWN)) {
-            selectNext(lastItemCount);
+            if (stickyScroll) {
+                scrollOffset += 1;
+                userScrolledAway = true; // Will be reset in render if at bottom
+            } else {
+                selectNext(lastItemCount);
+            }
             return EventResult.HANDLED;
         }
 
         if (event.matches(Actions.PAGE_UP)) {
             int steps = Math.max(1, lastViewportHeight - 1);
-            for (int i = 0; i < steps; i++) {
-                selectPrevious();
+            if (stickyScroll) {
+                scrollOffset = Math.max(0, scrollOffset - steps);
+                userScrolledAway = true; // Scrolling up means user is scrolling away
+            } else {
+                for (int i = 0; i < steps; i++) {
+                    selectPrevious();
+                }
             }
             return EventResult.HANDLED;
         }
 
         if (event.matches(Actions.PAGE_DOWN)) {
             int steps = Math.max(1, lastViewportHeight - 1);
-            for (int i = 0; i < steps; i++) {
-                selectNext(lastItemCount);
+            if (stickyScroll) {
+                scrollOffset += steps;
+                userScrolledAway = true; // Will be reset in render if at bottom
+            } else {
+                for (int i = 0; i < steps; i++) {
+                    selectNext(lastItemCount);
+                }
             }
             return EventResult.HANDLED;
         }
 
         if (event.matches(Actions.HOME)) {
-            selectFirst();
+            if (stickyScroll) {
+                scrollOffset = 0;
+                userScrolledAway = true; // At top, not bottom
+            } else {
+                selectFirst();
+            }
             return EventResult.HANDLED;
         }
 
         if (event.matches(Actions.END)) {
-            selectLast(lastItemCount);
+            if (stickyScroll) {
+                userScrolledAway = false; // Going to end, resume auto-scroll
+                // scrollOffset will be set to max in render
+            } else {
+                selectLast(lastItemCount);
+            }
             return EventResult.HANDLED;
         }
 
@@ -732,14 +863,27 @@ public final class ListElement<T> extends StyledElement<ListElement<T>> {
 
         if (lastItemCount > 0) {
             if (event.kind() == MouseEventKind.SCROLL_UP) {
-                for (int i = 0; i < 3; i++) {
-                    selectPrevious();
+                if (stickyScroll) {
+                    // Direct scroll for sticky mode - scrolling up always means user is scrolling away
+                    scrollOffset = Math.max(0, scrollOffset - 3);
+                    userScrolledAway = true;
+                } else {
+                    for (int i = 0; i < 3; i++) {
+                        selectPrevious();
+                    }
                 }
                 return EventResult.HANDLED;
             }
             if (event.kind() == MouseEventKind.SCROLL_DOWN) {
-                for (int i = 0; i < 3; i++) {
-                    selectNext(lastItemCount);
+                if (stickyScroll) {
+                    // Direct scroll for sticky mode
+                    scrollOffset += 3;
+                    // Will be reset in render if at bottom
+                    userScrolledAway = true;
+                } else {
+                    for (int i = 0; i < 3; i++) {
+                        selectNext(lastItemCount);
+                    }
                 }
                 return EventResult.HANDLED;
             }

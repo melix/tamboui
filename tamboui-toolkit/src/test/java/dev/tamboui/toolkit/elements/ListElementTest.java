@@ -288,4 +288,173 @@ class ListElementTest {
             assertThat(buffer).isNotNull();
         }
     }
+
+    @Nested
+    @DisplayName("Scroll mode configuration")
+    class ScrollModeTests {
+
+        @Test
+        @DisplayName("Cannot combine autoScroll with scrollToEnd")
+        void cannotCombineAutoScrollWithScrollToEnd() {
+            assertThatThrownBy(() -> list("A", "B").autoScroll().scrollToEnd())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("autoScroll is already enabled");
+        }
+
+        @Test
+        @DisplayName("Cannot combine autoScroll with stickyScroll")
+        void cannotCombineAutoScrollWithStickyScroll() {
+            assertThatThrownBy(() -> list("A", "B").autoScroll().stickyScroll())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("autoScroll is already enabled");
+        }
+
+        @Test
+        @DisplayName("Cannot combine scrollToEnd with stickyScroll")
+        void cannotCombineScrollToEndWithStickyScroll() {
+            assertThatThrownBy(() -> list("A", "B").scrollToEnd().stickyScroll())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("scrollToEnd is already enabled");
+        }
+
+        @Test
+        @DisplayName("Cannot combine stickyScroll with autoScroll")
+        void cannotCombineStickyScrollWithAutoScroll() {
+            assertThatThrownBy(() -> list("A", "B").stickyScroll().autoScroll())
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("stickyScroll is already enabled");
+        }
+
+        @Test
+        @DisplayName("Calling same scroll mode twice is allowed (idempotent)")
+        void sameScrollModeTwiceIsAllowed() {
+            // Should not throw
+            list("A", "B").autoScroll().autoScroll();
+            list("A", "B").scrollToEnd().scrollToEnd();
+            list("A", "B").stickyScroll().stickyScroll();
+        }
+
+        @Test
+        @DisplayName("stickyScroll renders correctly")
+        void stickyScrollRenders() {
+            Rect area = new Rect(0, 0, 20, 5);
+            Buffer buffer = Buffer.empty(area);
+            Frame frame = Frame.forTesting(buffer);
+
+            list("Item 1", "Item 2", "Item 3")
+                .stickyScroll()
+                .displayOnly()
+                .render(frame, area, RenderContext.empty());
+
+            assertThat(buffer).isNotNull();
+        }
+    }
+
+    @Nested
+    @DisplayName("ScrollBarPolicy configuration")
+    class ScrollBarPolicyTests {
+
+        // Scrollbar uses these symbols (from Scrollbar widget)
+        private static final String THUMB = "█";
+        private static final String TRACK = "│";
+
+        private boolean hasScrollbarAt(Buffer buffer, int x) {
+            for (int y = 0; y < buffer.area().height(); y++) {
+                String symbol = buffer.get(x, y).symbol();
+                if (THUMB.equals(symbol) || TRACK.equals(symbol)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Test
+        @DisplayName("scrollbar() shows scrollbar at right edge")
+        void scrollbarAlwaysShowsScrollbar() {
+            Rect area = new Rect(0, 0, 20, 5);
+            Buffer buffer = Buffer.empty(area);
+            Frame frame = Frame.forTesting(buffer);
+
+            list("Item 1", "Item 2")
+                .scrollbar()
+                .displayOnly()
+                .render(frame, area, RenderContext.empty());
+
+            // Scrollbar should be at rightmost column (x=19)
+            assertThat(hasScrollbarAt(buffer, 19))
+                .as("Scrollbar should be visible at right edge")
+                .isTrue();
+        }
+
+        @Test
+        @DisplayName("scrollbar(NONE) does not show scrollbar")
+        void scrollbarNoneHidesScrollbar() {
+            Rect area = new Rect(0, 0, 20, 5);
+            Buffer buffer = Buffer.empty(area);
+            Frame frame = Frame.forTesting(buffer);
+
+            list("Item 1", "Item 2")
+                .scrollbar(ListElement.ScrollBarPolicy.NONE)
+                .displayOnly()
+                .render(frame, area, RenderContext.empty());
+
+            // No scrollbar at right edge
+            assertThat(hasScrollbarAt(buffer, 19))
+                .as("Scrollbar should NOT be visible")
+                .isFalse();
+        }
+
+        @Test
+        @DisplayName("scrollbar(AS_NEEDED) shows scrollbar when content exceeds viewport")
+        void scrollbarAsNeededShowsWhenNeeded() {
+            Rect area = new Rect(0, 0, 20, 3);
+            Buffer buffer = Buffer.empty(area);
+            Frame frame = Frame.forTesting(buffer);
+
+            // 5 items in 3-row viewport should show scrollbar
+            list("Item 1", "Item 2", "Item 3", "Item 4", "Item 5")
+                .scrollbar(ListElement.ScrollBarPolicy.AS_NEEDED)
+                .displayOnly()
+                .render(frame, area, RenderContext.empty());
+
+            assertThat(hasScrollbarAt(buffer, 19))
+                .as("Scrollbar should be visible when content exceeds viewport")
+                .isTrue();
+        }
+
+        @Test
+        @DisplayName("scrollbar(AS_NEEDED) hides scrollbar when content fits")
+        void scrollbarAsNeededHidesWhenNotNeeded() {
+            Rect area = new Rect(0, 0, 20, 10);
+            Buffer buffer = Buffer.empty(area);
+            Frame frame = Frame.forTesting(buffer);
+
+            // 2 items in 10-row viewport should not need scrollbar
+            list("Item 1", "Item 2")
+                .scrollbar(ListElement.ScrollBarPolicy.AS_NEEDED)
+                .displayOnly()
+                .render(frame, area, RenderContext.empty());
+
+            assertThat(hasScrollbarAt(buffer, 19))
+                .as("Scrollbar should NOT be visible when content fits")
+                .isFalse();
+        }
+
+        @Test
+        @DisplayName("scrollbar(null) defaults to NONE (no scrollbar)")
+        void scrollbarNullDefaultsToNone() {
+            Rect area = new Rect(0, 0, 20, 5);
+            Buffer buffer = Buffer.empty(area);
+            Frame frame = Frame.forTesting(buffer);
+
+            list("Item 1", "Item 2")
+                .scrollbar(null)
+                .displayOnly()
+                .render(frame, area, RenderContext.empty());
+
+            assertThat(hasScrollbarAt(buffer, 19))
+                .as("Scrollbar should NOT be visible with null policy")
+                .isFalse();
+        }
+    }
 }
